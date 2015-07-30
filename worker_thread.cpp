@@ -7,12 +7,15 @@
 #include "worker_thread.h"
 #include<fcntl.h>
 #include<unistd.h>
+int WorkerThread::thread_count_=1;
+
 WorkerThread::WorkerThread()
 {
 	pthread_event_base_=NULL;
 	pnotify_event_=NULL;
 	notfiy_recv_fd_=-1;
 	notfiy_send_fd_=-1;
+	thread_id_=thread_count_++;
 }
 
 WorkerThread::~WorkerThread()
@@ -43,8 +46,10 @@ bool WorkerThread::Run()
 		{
 			break;
 		}
+		LOG(INFO)<<"workerhread "<<thread_id_<<" run success";
 		return true;
 	}while(0);
+	LOG(ERROR)<<"workerhread "<<thread_id_<<"run failed";
 	return false;
 }
 bool WorkerThread::CreateNotifyFds()
@@ -57,6 +62,7 @@ bool WorkerThread::CreateNotifyFds()
 		  notfiy_send_fd_ = fds[1];
 		  ret=true;
 	 }
+	 LOG_IF(ret==false,ERROR)<<"workerthread "<<thread_id_<<" create pipes failed\n";
 	  return ret;
 }
 
@@ -69,6 +75,7 @@ bool WorkerThread::AddConnItem(ConnItem& conn_item)
 		}
 		catch(...)
 		{
+			LOG(ERROR)<<"workerthread "<<thread_id_<<"  add connection item failed\n";
 			return false;
 		}
 		return true;
@@ -85,6 +92,7 @@ bool WorkerThread::DeleteConnItem(ConnItem& conn_item)
 		}
 		catch(...)
 		{
+			LOG(ERROR)<<"workerthread "<<thread_id_<<"  delete connection item failed\n";
 			return false;
 		}
 		return true;
@@ -103,18 +111,20 @@ bool WorkerThread::InitEventHandler()
 				break;
 			if(event_add(pnotify_event_, 0))
 				break;
+			LOG(INFO)<<"workerthread "<<thread_id_<<"  initialize event handler success\n";
 			return true;
 		}while(0);
+		LOG(ERROR)<<"workerthread "<<thread_id_<<"  initialize event handler failed\n";
 		return false;
 }
 
 void WorkerThread::HandleConn(evutil_socket_t fd, short what, void * arg)
 {
 	//当连接请求到来时
+	 WorkerThread * pwt=static_cast<WorkerThread *>(arg);
 	 char  buf[1];
 	 if(read(fd, buf, 1)!=1)//从sockpair的另一端读数据
-		 perror("read data error!\n");
-	 WorkerThread * pwt=static_cast<WorkerThread *>(arg);
+		 LOG(ERROR)<<"workerthread "<<pwt->thread_id_<<"accept connection failed\n";
 	std::lock_guard<std::mutex>  lock(pwt->conn_mutex_);
 	 ConnItem *pitem=&pwt->list_conn_item_.back();//取出在容器中的位置
 	//pwt->queue_conn_item_.pop();
@@ -123,16 +133,15 @@ void WorkerThread::HandleConn(evutil_socket_t fd, short what, void * arg)
 		return;
     bufferevent_setcb(bev, ConnReadCb, NULL/*ConnWriteCb*/, ConnEventCB,pitem/*arg*/);
     bufferevent_enable(bev, EV_READ /*| EV_WRITE*/ );
+    LOG(INFO)<<"workerthread "<<pwt->thread_id_<<"accept connection success\n";
 }
 
 void WorkerThread::ConnReadCb(bufferevent * bev,void *ctx)
 {
 //TODO
-//	WorkerThread * pwt=static_cast<WorkerThread *>(ctx);
-//	auto input=bufferevent_get_input(bev);
-//	auto output=bufferevent_get_output(bev);
-//	evbuffer_add_printf(output,"WorkerThread id:%d Handle the data: ",pwt->thread_id_);
-//	bufferevent_write_buffer(bev,input);
+	ConnItem * pitem=static_cast<ConnItem *>(ctx);
+	WorkerThread * pwt=static_cast<WorkerThread *>(pitem->pthis);
+	LOG(INFO)<<"workerthread "<<pwt->thread_id_<<"accept datas from session "<<pitem->session_id<<std::endl;
 	DataHandle::AnalyzeData(bev,ctx);
 }
 void WorkerThread::ConnWriteCb(bufferevent *bev,void * ctx)
@@ -144,6 +153,7 @@ void WorkerThread::ConnEventCB(bufferevent *bev,short int  events,void * ctx)
 {
 	ConnItem * pitem=static_cast<ConnItem *>(ctx);
 	WorkerThread * pwt=static_cast<WorkerThread*>(pitem->pthis);
+	LOG(ERROR)<<"session "<<pitem->session_id<<"has encounted an error\n";
 	if(pitem->log_fd!=-1)//连接意外关闭，关闭写日志文件描述符
 		close(pitem->log_fd);
 	pwt->DeleteConnItem(*pitem);//从线程队列中删除连接对象

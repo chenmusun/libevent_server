@@ -46,12 +46,13 @@ void LibeventServer::WaitForListenThread()
 void LibeventServer::AcceptError(evconnlistener *listener, void *ptr)
 {
 	//TODO
-	LibeventServer * pls=static_cast<LibeventServer *>(ptr);
-	printf("Main Listen Thread  AcceptError");
+	//LibeventServer * pls=static_cast<LibeventServer *>(ptr);
+	LOG(ERROR)<<"Main Listen Thread  AcceptError\n";
 }
 
 void LibeventServer::AcceptConn(evconnlistener * listener, int sock, sockaddr * addr, int len, void *ptr)
 {
+		LOG(INFO)<<"accept a connection"<<std::endl;
 		LibeventServer * pls=static_cast<LibeventServer *>(ptr);
 		int cur_thread_index = (pls->last_thread_index_ + 1) %pls->num_of_workerthreads_; // 轮循选择工作线程
 		pls->last_thread_index_ = cur_thread_index;
@@ -62,7 +63,7 @@ void LibeventServer::AcceptConn(evconnlistener * listener, int sock, sockaddr * 
 		item.pthis=static_cast<void *>((pls->vec_worker_thread_[cur_thread_index]).get());//将线程对象的指针加入ConnItem中
 		pls->vec_worker_thread_[cur_thread_index]->AddConnItem(item);
 		if(write(pls->vec_worker_thread_[cur_thread_index]->notfiy_send_fd_, "c", 1)!=1){//通知失败
-			perror("write data failed\n");
+			LOG(ERROR)<<"failed to note the workerthread a new connection comes"<<std::endl;
 			pls->vec_worker_thread_[cur_thread_index]->DeleteConnItem(item);
 		}
 }
@@ -79,14 +80,14 @@ bool LibeventServer::InitWorkerThreads()
 				ret=false;
 				break;
 			}
-			//TODO
-			pwt->thread_id_=i;
 			vec_worker_thread_.push_back(pwt);
 		}
 	}catch(...)
 	{
 		ret=false;
 	}
+	//LOG(ERROR)<<“Initialize workerthreads failed\n";
+    LOG_IF(ret==false,ERROR)<<"Initialize workerthreads failed"<<std::endl;
 	return ret;
 }
 
@@ -118,7 +119,9 @@ bool LibeventServer::StartListen()
 		     }catch(...){
 		    	 break;
 		     }
+		     LOG(INFO)<<"Listen on the port "<<listen_port_<<" success"<<std::endl;
 		     return true;
 	}while(0);
+    LOG(ERROR)<<"Listen on the port "<<listen_port_<<" failed"<<std::endl;
 	return false;
 }

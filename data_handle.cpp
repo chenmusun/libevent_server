@@ -34,6 +34,7 @@ void DataHandle::AnalyzeData(void *arg,void *arg2)
 	do{
 		//上次的数据包未处理完，直接进入函数处理
 		if(pitem->data_remain_length){
+			LOG(INFO)<<"continue accepting data packet from session "<<pitem->session_id<<" length remains "<<pitem->data_remain_length<<std::endl;
 			PureDataHandle(arg,arg2);
 			break;
 		}
@@ -51,26 +52,33 @@ void DataHandle::AnalyzeData(void *arg,void *arg2)
 
 		size_t n_read_out=0;
 		cmd_type=evbuffer_readln(input,&n_read_out,EVBUFFER_EOL_CRLF_STRICT);
-		if(!n_read_out||strncmp("[Request]",cmd_type,9))//非指令请求包
+		if(!n_read_out)//非指令包
 		{
 			if(evbuffer_drain(input,2)!=-1)//当成是数据包，移除\r\n
 			{
 				char data_head[35]={0};
 				evbuffer_remove(input,data_head,35);
 				pitem->data_remain_length=length-35-4;
+				LOG(INFO)<<"accept pure data packet from session "<<pitem->session_id<<" length "<<pitem->data_remain_length<<std::endl;
 				PureDataHandle(arg,arg2);
 			}
 			break;
 		}
 
-		//指令包的处理
-		cmd_name=evbuffer_readln(input,&n_read_out,EVBUFFER_EOL_CRLF_STRICT);
-		if(!n_read_out)//非正确的指令包格式
-			break;
 		CmdHandle cmd_handle_temp;
-		cmd_handle_temp.command_name_=cmd_name;
+		if(strncmp("[Request]",cmd_type,9))//不带[Request]的指令包
+			cmd_handle_temp.command_name_=cmd_type;
+		else{
+			//带[Request]指令包的处理
+			cmd_name=evbuffer_readln(input,&n_read_out,EVBUFFER_EOL_CRLF_STRICT);
+			if(!n_read_out)//非正确的指令包格式
+				break;
+			cmd_handle_temp.command_name_=cmd_name;
+		}
+
 		auto pos=cmd_handle_set_.find(cmd_handle_temp);
 		if(pos!=cmd_handle_set_.end()){
+			LOG(INFO)<<"accept command packet from session "<<pitem->session_id<<" command "<<cmd_handle_temp.command_name_<<std::endl;
 			pos->handle_proc_(buffer,arg2);
 		}
 	}while(0);
@@ -200,12 +208,33 @@ void DataHandle::UploadHandle(void *arg,void *arg2)
 
 void DataHandle::EofHandle(void *arg,void *arg2)
 {
+	bufferevent * buffer=static_cast<bufferevent *>(arg);
+	evbuffer * in=bufferevent_get_input(buffer);
 	ConnItem * pitem=static_cast<ConnItem *>(arg2);
 	if(pitem->log_fd!=-1){
 		close(pitem->log_fd);
 		pitem->log_fd=-1;
 	}
 //	TODO返回Eof的响应
+	char * session_id=NULL;
+	char * file_name=NULL;
+	do{
+		session_id=evbuffer_readln(in,NULL,EVBUFFER_EOL_CRLF_STRICT);
+		if(!session_id)
+			break;
+		file_name=evbuffer_readln(in,NULL,EVBUFFER_EOL_CRLF_STRICT);
+		if(!file_name)
+			break;
+		evbuffer * out=bufferevent_get_output(buffer);
+		evbuffer_add_printf(out,"[Response]\r\n");
+		evbuffer_add_printf(out,"Command=Eof\r\n");
+		evbuffer_add_printf(out,"%s\r\n",session_id);
+		evbuffer_add_printf(out,"%s\r\n",file_name);
+		evbuffer_add_printf(out,"Result=AC\r\n");
+		WriteDataSize(out);
+	}while(0);
+	free(session_id);
+	free(file_name);
 }
 
 void DataHandle::PureDataHandle(void * arg,void *arg2)
@@ -221,17 +250,4 @@ void DataHandle::PureDataHandle(void * arg,void *arg2)
 		int i=0;
 //	if(pitem->data_remain_length)
 }
-//	char  flag[30]={0};
-//	char  session_id_ch[5]={0};
-//	char length_ch[3]={0};
-//	int session_id=0;
-//	int length=0;
-//
-//	do{
-//		if(evbuffer_remove(in,flag,29)!=29)
-//			break;
-//		if((evbuffer_remove(in,session_id_ch,4)!=4)||!(session_id=atoi(session_id_ch)))
-//			break;
-//		if((evbuffer_remove(in,length_ch,2)!=2)||!(length=atoi(length_ch)))
-//			break;
 

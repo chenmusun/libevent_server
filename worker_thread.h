@@ -45,6 +45,7 @@ public:
 	std::mutex  conn_mutex_;
 	std::list<ConnItem>  list_conn_item_;
 	int thread_id_;//用于测试
+	static int thread_count_;
 };
 #endif
 
