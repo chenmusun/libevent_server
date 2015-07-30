@@ -34,7 +34,7 @@ void DataHandle::AnalyzeData(void *arg,void *arg2)
 	do{
 		//上次的数据包未处理完，直接进入函数处理
 		if(pitem->data_remain_length){
-			LOG(INFO)<<"continue accepting data packet from session "<<pitem->session_id<<" length remains "<<pitem->data_remain_length<<std::endl;
+			LOG(TRACE)<<"continue accepting data packet from session "<<pitem->session_id<<" length remains "<<pitem->data_remain_length<<std::endl;
 			PureDataHandle(arg,arg2);
 			break;
 		}
@@ -59,7 +59,7 @@ void DataHandle::AnalyzeData(void *arg,void *arg2)
 				char data_head[35]={0};
 				evbuffer_remove(input,data_head,35);
 				pitem->data_remain_length=length-35-4;
-				LOG(INFO)<<"accept pure data packet from session "<<pitem->session_id<<" length "<<pitem->data_remain_length<<std::endl;
+				LOG(TRACE)<<"accept pure data packet from session "<<pitem->session_id<<" length "<<pitem->data_remain_length<<std::endl;
 				PureDataHandle(arg,arg2);
 			}
 			break;
@@ -78,7 +78,7 @@ void DataHandle::AnalyzeData(void *arg,void *arg2)
 
 		auto pos=cmd_handle_set_.find(cmd_handle_temp);
 		if(pos!=cmd_handle_set_.end()){
-			LOG(INFO)<<"accept command packet from session "<<pitem->session_id<<" command "<<cmd_handle_temp.command_name_<<std::endl;
+			LOG(TRACE)<<"accept command packet from session "<<pitem->session_id<<" command "<<cmd_handle_temp.command_name_<<std::endl;
 			pos->handle_proc_(buffer,arg2);
 		}
 	}while(0);
@@ -211,7 +211,7 @@ void DataHandle::EofHandle(void *arg,void *arg2)
 	bufferevent * buffer=static_cast<bufferevent *>(arg);
 	evbuffer * in=bufferevent_get_input(buffer);
 	ConnItem * pitem=static_cast<ConnItem *>(arg2);
-	if(pitem->log_fd!=-1){
+	if(pitem->log_fd>0){
 		close(pitem->log_fd);
 		pitem->log_fd=-1;
 	}
@@ -243,7 +243,7 @@ void DataHandle::PureDataHandle(void * arg,void *arg2)
 	ConnItem * pitem=static_cast<ConnItem *>(arg2);
 	evbuffer * in=bufferevent_get_input(buffer);
 	int length=0;
-	if(pitem->log_fd!=-1)
+	if(pitem->log_fd>0)
 		length=evbuffer_write_atmost(in,pitem->log_fd,pitem->data_remain_length);//写数据
 	pitem->data_remain_length-=length;
 	if(pitem->data_remain_length<4096)

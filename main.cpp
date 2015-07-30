@@ -10,8 +10,6 @@ INITIALIZE_EASYLOGGINGPP//初始化日志记录库
 int main(int argc, char* argv[])
 {
 	el::Configurations conf("./log.conf");
-//	conf.set(el::Level::Global,
-//            el::ConfigurationType::Filename,"./logs/");
 	el::Loggers::reconfigureLogger("default", conf);
 	int port=5678;
 	int num_of_threads=2;

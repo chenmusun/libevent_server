@@ -46,7 +46,7 @@ bool WorkerThread::Run()
 		{
 			break;
 		}
-		LOG(INFO)<<"workerhread "<<thread_id_<<" run success";
+		LOG(TRACE)<<"workerhread "<<thread_id_<<" run success";
 		return true;
 	}while(0);
 	LOG(ERROR)<<"workerhread "<<thread_id_<<"run failed";
@@ -111,7 +111,7 @@ bool WorkerThread::InitEventHandler()
 				break;
 			if(event_add(pnotify_event_, 0))
 				break;
-			LOG(INFO)<<"workerthread "<<thread_id_<<"  initialize event handler success\n";
+			LOG(TRACE)<<"workerthread "<<thread_id_<<"  initialize event handler success\n";
 			return true;
 		}while(0);
 		LOG(ERROR)<<"workerthread "<<thread_id_<<"  initialize event handler failed\n";
@@ -141,7 +141,7 @@ void WorkerThread::ConnReadCb(bufferevent * bev,void *ctx)
 //TODO
 	ConnItem * pitem=static_cast<ConnItem *>(ctx);
 	WorkerThread * pwt=static_cast<WorkerThread *>(pitem->pthis);
-	LOG(INFO)<<"workerthread "<<pwt->thread_id_<<"accept datas from session "<<pitem->session_id<<std::endl;
+	LOG(TRACE)<<"workerthread "<<pwt->thread_id_<<"accept datas from session "<<pitem->session_id<<std::endl;
 	DataHandle::AnalyzeData(bev,ctx);
 }
 void WorkerThread::ConnWriteCb(bufferevent *bev,void * ctx)
