@@ -18,19 +18,10 @@
  #include <sys/stat.h>
 //增加日志功能
 #include"easylogging++.h"
+#include"worker_thread.h"
 #define DECLARE_HANDLE_PROC(cmd)   static void cmd##Handle(void *,void *);
 
-struct ConnItem{
-	int session_id;//会话ID
-	evutil_socket_t  conn_fd;
-	evutil_socket_t  log_fd;
-	void * pthis;//指向线程对象的指针
-	int data_remain_length;//剩余未处理完数据
-	bool operator<(const ConnItem &ci) const
-	{
-		return (session_id<ci.session_id);
-	}
-};
+
 
 
 struct CmdHandle{
@@ -56,6 +47,7 @@ public:
 	DECLARE_HANDLE_PROC(Upload)
 	DECLARE_HANDLE_PROC(Eof)
 	DECLARE_HANDLE_PROC(PureData)//纯数据包操作
+	static void PureDataHandle(void * arg);
 private:
 	static void WriteDataSize(evbuffer *);
 	static  std::set<CmdHandle> cmd_handle_set_;

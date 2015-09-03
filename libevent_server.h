@@ -6,7 +6,8 @@
  */
 #ifndef LIBEVENT_SERVER_H_
 #define LIBEVENT_SERVER_H_
-#include "worker_thread.h"
+//#include "worker_thread.h"
+#include "data_handle.h"
 #include<event2/listener.h>
 #include<vector>
 class LibeventServer{

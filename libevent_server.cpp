@@ -60,6 +60,10 @@ void LibeventServer::AcceptConn(evconnlistener * listener, int sock, sockaddr * 
 		memset(&item,0,sizeof(ConnItem));
 		item.session_id=current_max_session_id_++;//会话ID
 		item.conn_fd=sock;
+		if(!(item.format_buffer=evbuffer_new())){
+			LOG(ERROR)<<"failed to new format_evbuffer for item"<<std::endl;
+			return;
+		}
 		item.pthis=static_cast<void *>((pls->vec_worker_thread_[cur_thread_index]).get());//将线程对象的指针加入ConnItem中
 		pls->vec_worker_thread_[cur_thread_index]->AddConnItem(item);
 		if(write(pls->vec_worker_thread_[cur_thread_index]->notfiy_send_fd_, "c", 1)!=1){//通知失败
@@ -72,9 +76,11 @@ bool LibeventServer::InitWorkerThreads()
 {
 	bool ret=true;
 	try{
+		//设置回调函数
+	//	WorkerThread::SetDataHandleProc(DataHandle::AnalyzeData);
 		for(int i=0;i<num_of_workerthreads_;++i)
 		{
-			std::shared_ptr<WorkerThread>  pwt(new WorkerThread);
+			std::shared_ptr<WorkerThread>  pwt(new WorkerThread(DataHandle::AnalyzeData));
 			if(!pwt->Run())
 			{
 				ret=false;

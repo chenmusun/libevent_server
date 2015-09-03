@@ -16,12 +16,40 @@
 #include<mutex>
 #include<unistd.h>
 #include<event2/buffer.h>
-#include"data_handle.h"
+//#include"data_handle.h"
+//增加日志功能
+#include"easylogging++.h"
+
+struct ConnItem{
+	int session_id;//会话ID
+	evutil_socket_t  conn_fd;
+	evutil_socket_t  log_fd;
+	evbuffer * format_buffer;
+	void * pthis;//指向线程对象的指针
+	int data_remain_length;//剩余未处理完数据
+	int total_packet_length;//总数据包长度
+	char triple_des[49];
+	unsigned char * data_packet_buffer;//数据包缓冲
+	void Clear()
+	{
+		if(log_fd>0){//关闭日志描述符
+			close(log_fd);
+			log_fd=-1;
+		}
+		evbuffer_free(format_buffer);//释放format_buffer占用内存
+	}
+	bool operator<(const ConnItem &ci) const
+	{
+		return (session_id<ci.session_id);
+	}
+};
+
 
 class WorkerThread
 {
 public:
-	WorkerThread();
+	typedef  void (*DataHandleProc) (void *,void *)  ;
+	WorkerThread(DataHandleProc proc);
 	~WorkerThread();
 	bool Run();//运行工作线程
 	bool AddConnItem(ConnItem& conn_item);//增加连接对象到线程队列中
@@ -30,6 +58,8 @@ public:
 	static void ConnReadCb(struct bufferevent *,void *);//buffer读回调
 	static void ConnWriteCb(struct bufferevent *,void *);//buffer写回调
 	static void ConnEventCB(struct bufferevent *,short int,void *);//出错回调
+
+	 //void SetDataHandleProc(DataHandleProc proc);//设置回调函数
 public:
 	evutil_socket_t  notfiy_recv_fd_;//工作线程接收端
 	evutil_socket_t  notfiy_send_fd_;//监听线程发送端
@@ -39,6 +69,7 @@ private:
 	bool InitEventHandler();//初始化事件处理器
 private:
 	struct event  * pnotify_event_; //主线程通知工作线程连接到来事件
+	DataHandleProc handle_data_proc_;//数据处理回调函数
 public:
 	struct event_base * pthread_event_base_;
 public:

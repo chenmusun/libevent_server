@@ -9,13 +9,16 @@
 #include<unistd.h>
 int WorkerThread::thread_count_=1;
 
-WorkerThread::WorkerThread()
+
+
+WorkerThread::WorkerThread(DataHandleProc proc)
 {
 	pthread_event_base_=NULL;
 	pnotify_event_=NULL;
 	notfiy_recv_fd_=-1;
 	notfiy_send_fd_=-1;
 	thread_id_=thread_count_++;
+	handle_data_proc_=proc;
 }
 
 WorkerThread::~WorkerThread()
@@ -87,8 +90,10 @@ bool WorkerThread::DeleteConnItem(ConnItem& conn_item)
 		{//list_conn_item_是按session_id从小到大排序的
 			std::lock_guard<std::mutex>  lock(conn_mutex_);
 			auto pos=std::lower_bound(list_conn_item_.begin(),list_conn_item_.end(),conn_item);
-			if((pos!=list_conn_item_.end())&&(conn_item.session_id==pos->session_id))
+			if((pos!=list_conn_item_.end())&&(conn_item.session_id==pos->session_id)){
+				pos->Clear();//善后处理
 				list_conn_item_.erase(pos);
+			}
 		}
 		catch(...)
 		{
@@ -97,6 +102,7 @@ bool WorkerThread::DeleteConnItem(ConnItem& conn_item)
 		}
 		return true;
 }
+
 
 
 bool WorkerThread::InitEventHandler()
@@ -142,7 +148,8 @@ void WorkerThread::ConnReadCb(bufferevent * bev,void *ctx)
 	ConnItem * pitem=static_cast<ConnItem *>(ctx);
 	WorkerThread * pwt=static_cast<WorkerThread *>(pitem->pthis);
 	LOG(TRACE)<<"workerthread "<<pwt->thread_id_<<"accept datas from session "<<pitem->session_id<<std::endl;
-	DataHandle::AnalyzeData(bev,ctx);
+	//DataHandle::AnalyzeData(bev,ctx);
+	pwt->handle_data_proc_(bev,ctx);
 }
 void WorkerThread::ConnWriteCb(bufferevent *bev,void * ctx)
 {
@@ -154,8 +161,7 @@ void WorkerThread::ConnEventCB(bufferevent *bev,short int  events,void * ctx)
 	ConnItem * pitem=static_cast<ConnItem *>(ctx);
 	WorkerThread * pwt=static_cast<WorkerThread*>(pitem->pthis);
 	LOG(ERROR)<<"session "<<pitem->session_id<<"has encounted an error\n";
-	if(pitem->log_fd!=-1)//连接意外关闭，关闭写日志文件描述符
-		close(pitem->log_fd);
 	pwt->DeleteConnItem(*pitem);//从线程队列中删除连接对象
 	bufferevent_free(bev);
 }
+

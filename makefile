@@ -16,11 +16,10 @@
 #
 CC=g++
 CFLAGS= -std=c++11
-objects = main.o libevent_server.o worker_thread.o data_handle.o
+objects = worker_thread.o data_handle.o libevent_server.o main.o
 
-
-all:$(objects) 
-	g++ -std=c++11 -pthread  -o libevent_server $(objects) -levent
+all:$(objects)
+	g++   -o libevent_server $(objects) -Wl,-dn -std=c++11 -levent -lnettle -lz -luuid -Wl,-dy -lpthread
 $(objects): %.o: %.cpp
 	$(CC) -c -g $(CFLAGS) $< -o $@
 clean:
