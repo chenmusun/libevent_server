@@ -17,7 +17,7 @@
 #include<unistd.h>
  #include <sys/stat.h>
 //增加日志功能
-#include"easylogging++.h"
+//#include"easylogging++.h"
 #include"worker_thread.h"
 #define DECLARE_HANDLE_PROC(cmd)   static void cmd##Handle(void *,void *);
 

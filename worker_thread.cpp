@@ -93,6 +93,7 @@ bool WorkerThread::DeleteConnItem(ConnItem& conn_item)
 			if((pos!=list_conn_item_.end())&&(conn_item.session_id==pos->session_id)){
 				pos->Clear();//善后处理
 				list_conn_item_.erase(pos);
+				LOG(TRACE)<<list_conn_item_.size()<<std::endl;
 			}
 		}
 		catch(...)

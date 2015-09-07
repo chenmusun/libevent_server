@@ -18,6 +18,7 @@
 #include<event2/buffer.h>
 //#include"data_handle.h"
 //增加日志功能
+#define ELPP_THREAD_SAFE
 #include"easylogging++.h"
 
 struct ConnItem{

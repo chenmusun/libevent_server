@@ -146,6 +146,7 @@ void DataHandle::AnalyzeData(void *arg,void *arg2)
 				evbuffer_remove(input,data_head,35);
 				pitem->total_packet_length=length-35-4;
 				pitem->data_remain_length=length-35-4;
+				length=0;
 				pitem->data_packet_buffer=new unsigned char[pitem->total_packet_length];
 				int nread=evbuffer_remove(input,pitem->data_packet_buffer,pitem->total_packet_length);
 				pitem->data_remain_length-=nread;
@@ -302,7 +303,7 @@ void DataHandle::UploadHandle(void *arg,void *arg2)
 //			 buf.st_size=0;
 		//创建或打开文件
 		char path[256]={0};
-		sprintf(path,"./%s",file_name+9);
+		sprintf(path,"./save/%s",file_name+9);
 		int fd=open(path,O_WRONLY|O_APPEND|O_CREAT,S_IWUSR|S_IRUSR);
 		pitem->log_fd=fd;
 		 struct stat buf;
