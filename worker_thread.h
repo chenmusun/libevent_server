@@ -16,11 +16,15 @@
 #include<mutex>
 #include<unistd.h>
 #include<event2/buffer.h>
+//#define HAVE_CPP0XVARIADICTEMPLATES
+#include"nedmalloc.h"
+//#include"malloc.c.h"
 //#include"data_handle.h"
 //增加日志功能
 #define ELPP_THREAD_SAFE
 #include"easylogging++.h"
-
+#include "zhelpers.hpp"
+//#include<boost/pool/singleton_pool.hpp>//内存池
 struct ConnItem{
 	int session_id;//会话ID
 	evutil_socket_t  conn_fd;
@@ -31,12 +35,18 @@ struct ConnItem{
 	int total_packet_length;//总数据包长度
 	char triple_des[49];
 	unsigned char * data_packet_buffer;//数据包缓冲
+	bool recving_log;//是否正在接收日志
+	std::string worker_name;//worker路径名
+	std::string log_name;//日志名
 	void Clear()
 	{
 		if(log_fd>0){//关闭日志描述符
 			close(log_fd);
 			log_fd=-1;
 		}
+	//	delete[] data_packet_buffer;
+		nedalloc::nedfree(data_packet_buffer);
+		data_packet_buffer=NULL;
 		evbuffer_free(format_buffer);//释放format_buffer占用内存
 	}
 	bool operator<(const ConnItem &ci) const
@@ -50,7 +60,7 @@ class WorkerThread
 {
 public:
 	typedef  void (*DataHandleProc) (void *,void *)  ;
-	WorkerThread(DataHandleProc proc);
+	WorkerThread(DataHandleProc proc,zmq::context_t& context,const std::string& addr);
 	~WorkerThread();
 	bool Run();//运行工作线程
 	bool AddConnItem(ConnItem& conn_item);//增加连接对象到线程队列中
@@ -59,7 +69,7 @@ public:
 	static void ConnReadCb(struct bufferevent *,void *);//buffer读回调
 	static void ConnWriteCb(struct bufferevent *,void *);//buffer写回调
 	static void ConnEventCB(struct bufferevent *,short int,void *);//出错回调
-
+	//static void ConnTimeoutReadCb(struct bufferevent *,void *);//buffer读超时回调
 	 //void SetDataHandleProc(DataHandleProc proc);//设置回调函数
 public:
 	evutil_socket_t  notfiy_recv_fd_;//工作线程接收端
@@ -78,6 +88,7 @@ public:
 	std::list<ConnItem>  list_conn_item_;
 	int thread_id_;//用于测试
 	static int thread_count_;
+	zmq::socket_t requester_;//zmq socket
 };
 #endif
 

@@ -8,6 +8,13 @@
 #include"zlib.h"
 #include<nettle/des.h>
 #include<uuid/uuid.h>
+//add zmq
+
+const std::string HAS_NO_WORKER="HASNOWORKER";
+const std::string CLIENT_REQUEST="CLIENTREQUEST";
+const std::string WORKER_REQUEST="WORKERREQUEST";
+const std::string BROKER_REPLY="BROKERREPLY";
+const std::string WORKER_CHANGED="WORKERCHANGED";
 
 CmdHandle  cmd_name[]={
 		{"Command=Login",DataHandle::LoginHandle},
@@ -90,7 +97,8 @@ bool DecryptDecompressData(const uint8_t * src,int& length,uint8_t * dest,char (
 
 
 int DataHandle::session_id_=1;
-
+std::mutex DataHandle::map_mutex_;
+std::map<std::string,std::string>	DataHandle::logname_worker_map_;
 std::set<CmdHandle> DataHandle::cmd_handle_set_(cmd_name,cmd_name+sizeof(cmd_name)/sizeof(CmdHandle));
 
 void DataHandle::AnalyzeData(void *arg,void *arg2)
@@ -147,7 +155,8 @@ void DataHandle::AnalyzeData(void *arg,void *arg2)
 				pitem->total_packet_length=length-35-4;
 				pitem->data_remain_length=length-35-4;
 				length=0;
-				pitem->data_packet_buffer=new unsigned char[pitem->total_packet_length];
+			//	pitem->data_packet_buffer=new unsigned char[pitem->total_packet_length];//new unsigned char[pitem->total_packet_length];
+				pitem->data_packet_buffer=(unsigned char *)nedalloc::nedmalloc(pitem->total_packet_length);
 				int nread=evbuffer_remove(input,pitem->data_packet_buffer,pitem->total_packet_length);
 				pitem->data_remain_length-=nread;
 			//	LOG(TRACE)<<"accept pure data packet from session "<<pitem->session_id<<" length "<<pitem->data_remain_length<<std::endl;
@@ -294,6 +303,13 @@ void DataHandle::UploadHandle(void *arg,void *arg2)
 		evbuffer_add_printf(pitem->format_buffer,"%s\r\n",file_name);
 
 		evbuffer_add_printf(pitem->format_buffer,"Result=AC\r\n");
+		pitem->recving_log=true;//接收日志中
+		pitem->log_name=file_name;
+		//add zmq
+		if((pitem->worker_name=GetWorkerPath(file_name)).empty()){
+			WorkerThread * pwt=static_cast<WorkerThread *>(pitem->pthis);
+			pitem->worker_name=SetWorkerPath(pwt->requester_,file_name);
+		}
 		//evbuffer_add_printf(out,"Code=A Code\r\n ");
 		//获取文件大小
 //		 struct stat buf;
@@ -331,6 +347,7 @@ void DataHandle::EofHandle(void *arg,void *arg2)
 	bufferevent * buffer=static_cast<bufferevent *>(arg);
 	evbuffer * in=bufferevent_get_input(buffer);
 	ConnItem * pitem=static_cast<ConnItem *>(arg2);
+	pitem->recving_log=false;//接收日志结束
 	if(pitem->log_fd>0){
 		close(pitem->log_fd);
 		pitem->log_fd=-1;
@@ -355,6 +372,8 @@ void DataHandle::EofHandle(void *arg,void *arg2)
 		if(evbuffer_add_buffer(out,pitem->format_buffer))
 			LOG(ERROR)<<"evbuffer_add_buffer failed\n";
 	}while(0);
+	//zmq delete worker TODO
+	DeleteWorkerPath(file_name);
 	free(session_id);
 	free(file_name);
 }
@@ -367,13 +386,50 @@ void DataHandle::PureDataHandle(void * arg)
 //	int length=0;
 	if(pitem->log_fd>0){
 		//unsigned char encrypted_data[65535]={0};
-		unsigned char decrypted_data[65535*4]={0};
+		unsigned char decrypted_data[65535*10]={0};
 //		length=evbuffer_remove(in,encrypted_data,65535);
 //		pitem->data_remain_length-=length;
 		int length=pitem->total_packet_length;
-		if(DecryptDecompressData(pitem->data_packet_buffer,length,decrypted_data,pitem->triple_des))
+		if(DecryptDecompressData(pitem->data_packet_buffer,length,decrypted_data,pitem->triple_des)){
 			write(pitem->log_fd,decrypted_data,length);
-		delete[] pitem->data_packet_buffer;//回收内存，此处可以使用内存池进行优化
+			if(!pitem->worker_name.empty()){
+				WorkerThread * pwt=static_cast<WorkerThread *>(pitem->pthis);
+				// pitem->worker_name=SetWorkerPath(pwt->requester_,file_name);
+				if(s_sendmore(pwt->requester_,pitem->worker_name))
+				{
+					s_sendmore(pwt->requester_,pitem->log_name);
+					s_send(pwt->requester_,(char *)decrypted_data);
+					std::string rep=s_recv(pwt->requester_);
+					if(rep==HAS_NO_WORKER)
+						LOG(ERROR)<<"after send data got HAS_NO_WORKER";
+					else if(rep==WORKER_CHANGED){
+						LOG(ERROR)<<"after send data got WORKER_CHANGED";
+						//GET THE NEW WORKER PATH
+						std::string rep=s_recv(pwt->requester_);
+						pitem->worker_name=rep;
+					}
+					else if(rep.empty())
+						LOG(ERROR)<<"after send data got null string";
+					else if(rep!=BROKER_REPLY){
+						LOG(ERROR)<<"after send data got unexpected return ,rep is "<<rep;
+					}
+
+				}
+				else {
+					LOG(ERROR)<<"send data failed";
+				}
+			}
+			else {
+				LOG(ERROR)<<"has no worker path,can't send data to remote";
+			}
+		}
+
+	//	delete[] pitem->data_packet_buffer;//回收内存，此处可以使用内存池进行优化
+		if(pitem->data_packet_buffer){
+			nedalloc::nedfree(pitem->data_packet_buffer);
+			pitem->data_packet_buffer=NULL;
+		}
+
 //		length=evbuffer_write_atmost(in,pitem->log_fd,pitem->data_remain_length);//写数据
 	}
 
@@ -382,3 +438,63 @@ void DataHandle::PureDataHandle(void * arg)
 //	if(pitem->data_remain_length)
 }
 
+std::string DataHandle::GetWorkerPath(const std::string& log_name){
+	std::string ret;
+	try{
+		std::lock_guard<std::mutex>  lock(map_mutex_);
+		auto pos=logname_worker_map_.find(log_name);
+		if(pos!=logname_worker_map_.end())
+			ret=pos->second;
+	}catch(...){
+	}
+	return ret;
+}
+ bool DataHandle::DeleteWorkerPath(const std::string& log_name){
+	bool ret=false;
+	try{
+		std::lock_guard<std::mutex>  lock(map_mutex_);
+		auto pos=logname_worker_map_.find(log_name);
+		if(pos!=logname_worker_map_.end()){
+			logname_worker_map_.erase(pos);
+			ret=true;
+		}
+
+	}catch(...){
+	}
+	return ret;
+}
+ bool DataHandle::AddWorkerPath(const std::string& log_name,const std::string& worker_path){
+	bool ret=false;
+	try{
+		std::lock_guard<std::mutex>  lock(map_mutex_);
+		// auto pos=logname_worker_map_.find(log_name);
+		// if(pos!=logname_worker_map_.end()){
+		// 	logname_worker_map_.erase(pos);
+		// 	ret=true;
+		// }
+		logname_worker_map_.insert(std::make_pair(log_name,worker_path));
+		ret=true;
+
+	}catch(...){
+	}
+	return ret;
+}
+
+std::string DataHandle::SetWorkerPath(zmq::socket_t& sock,const std::string& log_name){
+	std::string worker;
+	if(s_send(sock,CLIENT_REQUEST)){
+		worker=s_recv(sock);
+		if(worker==HAS_NO_WORKER){
+			LOG(ERROR)<<"the broker HAS_NO_WORKER";
+			worker="";
+		}
+		else if(worker.empty())
+			LOG(ERROR)<<"the broker is not avaliable";
+		else {
+			AddWorkerPath(log_name,worker);
+		}
+	}else{
+		LOG(INFO)<<"send CLIENT_REQUEST failed";
+	}
+	return worker;
+}

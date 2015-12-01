@@ -15,12 +15,14 @@
 #	rm -f *.o
 #
 CC=g++
-CFLAGS= -std=c++11
+CFLAGS= -std=c++11 -w
 objects = worker_thread.o data_handle.o libevent_server.o main.o
-
-all:$(objects)
-	g++   -o libevent_server $(objects) -Wl,-dn -std=c++11 -levent -lnettle -lz -luuid -Wl,-dy -lpthread
-$(objects): %.o: %.cpp
+object =  nedmalloc.o
+all:$(objects) $(object)
+	g++   -o libevent_server $(objects) $(object) -Wl,-dn -std=c++11 -levent -lnettle -lz -luuid -Wl,-dy -lpthread  -lzmq
+$(objects): %.o: %.cpp 
+	$(CC) -c -g $(CFLAGS) $< -o $@
+$(object): %.o: %.c
 	$(CC) -c -g $(CFLAGS) $< -o $@
 clean:
 	rm -f *.o libevent_server

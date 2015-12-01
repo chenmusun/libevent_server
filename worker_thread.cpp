@@ -11,7 +11,7 @@ int WorkerThread::thread_count_=1;
 
 
 
-WorkerThread::WorkerThread(DataHandleProc proc)
+WorkerThread::WorkerThread(DataHandleProc proc,zmq::context_t& context,const std::string& addr):requester_(context,ZMQ_DEALER)
 {
 	pthread_event_base_=NULL;
 	pnotify_event_=NULL;
@@ -19,6 +19,11 @@ WorkerThread::WorkerThread(DataHandleProc proc)
 	notfiy_send_fd_=-1;
 	thread_id_=thread_count_++;
 	handle_data_proc_=proc;
+	//setsockpt
+	int timeo=1000;
+	requester_.connect(addr.c_str());//TODO 从配置文件中获取
+	requester_.setsockopt(ZMQ_SNDTIMEO, &timeo,4);      // s_set_id(requester);
+	requester_.setsockopt(ZMQ_RCVTIMEO,&timeo,4);
 }
 
 WorkerThread::~WorkerThread()
@@ -139,6 +144,9 @@ void WorkerThread::HandleConn(evutil_socket_t fd, short what, void * arg)
 	if(bev==NULL)
 		return;
     bufferevent_setcb(bev, ConnReadCb, NULL/*ConnWriteCb*/, ConnEventCB,pitem/*arg*/);
+    timeval tv;
+    tv.tv_sec=600;
+  //  bufferevent_set_timeouts(bev,&tv,NULL);//设置读超时
     bufferevent_enable(bev, EV_READ /*| EV_WRITE*/ );
     LOG(INFO)<<"workerthread "<<pwt->thread_id_<<"accept connection success\n";
 }
@@ -152,6 +160,7 @@ void WorkerThread::ConnReadCb(bufferevent * bev,void *ctx)
 	//DataHandle::AnalyzeData(bev,ctx);
 	pwt->handle_data_proc_(bev,ctx);
 }
+
 void WorkerThread::ConnWriteCb(bufferevent *bev,void * ctx)
 {
 	//TODO
@@ -159,10 +168,24 @@ void WorkerThread::ConnWriteCb(bufferevent *bev,void * ctx)
 }
 void WorkerThread::ConnEventCB(bufferevent *bev,short int  events,void * ctx)
 {
-	ConnItem * pitem=static_cast<ConnItem *>(ctx);
-	WorkerThread * pwt=static_cast<WorkerThread*>(pitem->pthis);
-	LOG(ERROR)<<"session "<<pitem->session_id<<"has encounted an error\n";
-	pwt->DeleteConnItem(*pitem);//从线程队列中删除连接对象
-	bufferevent_free(bev);
+	do{
+		ConnItem * pitem=static_cast<ConnItem *>(ctx);
+		WorkerThread * pwt=static_cast<WorkerThread*>(pitem->pthis);
+		if(events&BEV_EVENT_TIMEOUT){
+			if(pitem->recving_log){//日志文件收取过程中超时
+				pitem->recving_log=false;//接收日志结束
+				if(pitem->log_fd>0){
+					close(pitem->log_fd);
+					pitem->log_fd=-1;
+				}
+			}
+			break;
+		}
+
+		LOG(ERROR)<<"session "<<pitem->session_id<<"has encounted an error\n";
+		pwt->DeleteConnItem(*pitem);//从线程队列中删除连接对象
+		bufferevent_free(bev);
+	}while(0);
+
 }
 

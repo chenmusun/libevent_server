@@ -14,13 +14,13 @@ class LibeventServer{
 public:
 	LibeventServer(int port,int num_of_threads);
 	~LibeventServer();
-	bool Run();//开启服务
+	bool Run(zmq::context_t& context,const std::string& addr);//开启服务
 	void WaitForListenThread();
 	static  void AcceptConn(evconnlistener *, int, sockaddr *, int, void *);
 	static void AcceptError(evconnlistener *, void *);
 private:
 	bool StartListen();
-	bool InitWorkerThreads();
+	bool InitWorkerThreads(zmq::context_t& context,const std::string& addr);
 	std::vector<std::shared_ptr<WorkerThread> >  vec_worker_thread_;
 	std::shared_ptr<std::thread> main_listen_thread_;
 	event_base * server_base_;

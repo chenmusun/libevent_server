@@ -25,11 +25,11 @@ LibeventServer::~LibeventServer()
 		evconnlistener_free(server_conn_listenner_);
 }
 
-bool LibeventServer::Run()
+bool LibeventServer::Run(zmq::context_t& context,const std::string& addr)
 {
 	do
 	{
-		if(!InitWorkerThreads())
+        if(!InitWorkerThreads(context,addr))
 			break;
 		if(!StartListen())
 			break;
@@ -57,8 +57,8 @@ void LibeventServer::AcceptConn(evconnlistener * listener, int sock, sockaddr * 
 		int cur_thread_index = (pls->last_thread_index_ + 1) %pls->num_of_workerthreads_; // 轮循选择工作线程
 		pls->last_thread_index_ = cur_thread_index;
 		ConnItem item;
-		memset(&item,0,sizeof(ConnItem));
-		item.session_id=current_max_session_id_++;//会话ID
+//		memset(&item,0,sizeof(ConnItem));
+        item.session_id=current_max_session_id_++;//会话ID
 		item.conn_fd=sock;
 		if(!(item.format_buffer=evbuffer_new())){
 			LOG(ERROR)<<"failed to new format_evbuffer for item"<<std::endl;
@@ -72,15 +72,15 @@ void LibeventServer::AcceptConn(evconnlistener * listener, int sock, sockaddr * 
 		}
 }
 
-bool LibeventServer::InitWorkerThreads()
+bool LibeventServer::InitWorkerThreads(zmq::context_t& context,const std::string& addr)
 {
 	bool ret=true;
 	try{
 		//设置回调函数
 	//	WorkerThread::SetDataHandleProc(DataHandle::AnalyzeData);
 		for(int i=0;i<num_of_workerthreads_;++i)
-		{
-			std::shared_ptr<WorkerThread>  pwt(new WorkerThread(DataHandle::AnalyzeData));
+        {
+            std::shared_ptr<WorkerThread>  pwt(new WorkerThread(DataHandle::AnalyzeData,context,addr));
 			if(!pwt->Run())
 			{
 				ret=false;
