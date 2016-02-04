@@ -35,8 +35,15 @@ static void generate_triple_des(char (&arr)[49],char (&arr_send)[33])
 	  uuid_unparse(uuid,str);
 	  for(int i=0,j=0;i<36;++i)
 	    if(str[i]!='-'){
-	      arr[j]=str[i];
-	      arr_send[j]=str[i];
+		if(str[i]>='a'){
+	   	   arr[j]=str[i]-32;
+	   	   arr_send[j]=str[i]-32;
+		}
+		else{
+		   arr[j]=str[i];
+	         arr_send[j]=str[i];
+		}
+
 	      j++;
 	    }
 	  memcpy(arr+32,arr,16);
@@ -78,18 +85,24 @@ static void Decrypt3DES(const uint8_t * src,size_t length,uint8_t * dest,char (&
 	des3_decrypt(&des3,length,dest,src);
 }
 
-bool DecryptDecompressData(const uint8_t * src,int& length,uint8_t * dest,char (&password)[49])
+bool DecryptDecompressData(const uint8_t * src,int& length,uint8_t * dest,uLongf& destLength,char (&password)[49])
 {		//const int len=length;
 		bool ret=false;
 		do{
-			if(length%8)
+			if(length%8){
+				LOG(ERROR)<<"length%8 error";		
 				break;
+			}
 			uint8_t decrypted_dest[65535]={0};
 			Decrypt3DES(src,length,decrypted_dest,password);
-			int destLength=65535;
-			if(uncompress(dest,(uLongf *)&destLength,decrypted_dest,length)==Z_OK){
+
+			int status=Z_OK;
+			if((status=uncompress(dest,&destLength,decrypted_dest,length))==Z_OK){
 				length=destLength;
 				ret=true;
+			}
+			else{
+				LOG(ERROR)<<"uncompress error "<<status<<" and destLength is "<<destLength<<" and length is "<<length;			
 			}
 		}while(0);
 		return ret;
@@ -98,7 +111,7 @@ bool DecryptDecompressData(const uint8_t * src,int& length,uint8_t * dest,char (
 
 int DataHandle::session_id_=1;
 std::mutex DataHandle::map_mutex_;
-std::map<std::string,std::string>	DataHandle::logname_worker_map_;
+std::map<std::string,LogInfo>	DataHandle::log_info_map_;
 std::set<CmdHandle> DataHandle::cmd_handle_set_(cmd_name,cmd_name+sizeof(cmd_name)/sizeof(CmdHandle));
 
 void DataHandle::AnalyzeData(void *arg,void *arg2)
@@ -106,7 +119,10 @@ void DataHandle::AnalyzeData(void *arg,void *arg2)
 	bufferevent * buffer=static_cast<bufferevent *>(arg);
 	struct evbuffer * input=bufferevent_get_input(buffer);//得到ioevbuffer
 //	struct evbuffer * output=bufferevent_get_output(buffer);//得到ioevbuffer
-
+	//TODO
+//	unsigned char tmp[65535]={0};
+//	int num=evbuffer_copyout(input,tmp,65535);
+	//TODO
 	unsigned char lengthch[2]={0};
 	int length=0;
 	char * cmd_type=NULL;
@@ -207,6 +223,12 @@ void DataHandle::LoginHandle(void *arg,void *arg2)
 	//WorkerThread * pwt=static_cast<WorkerThread*>(pitem->pthis);
 
 	bufferevent * buffer=static_cast<bufferevent *>(arg);
+//TODO
+//		int testfd=open("./loginresponse",O_WRONLY|O_APPEND|O_CREAT,S_IWUSR|S_IRUSR);
+//		int nwrite=evbuffer_write(input,testfd);
+//		close(testfd);
+//		return;
+//TODO
 	evbuffer * out=bufferevent_get_output(buffer);
 
 	//evbuffer * outtmp=evbuffer_new();
@@ -247,7 +269,7 @@ void DataHandle::SyncHandle(void *arg,void *arg2)
 		evbuffer * out=bufferevent_get_output(buffer);
 		evbuffer_add_printf(pitem->format_buffer,"Command=Sync Time\r\n ");
 		evbuffer_add_printf(pitem->format_buffer,"Session=%s\r\n ",session_id);
-		evbuffer_add_printf(pitem->format_buffer,"URL=127.0.0.1\r\n ");//TODO
+		evbuffer_add_printf(pitem->format_buffer,"URL=172.30.4.125\r\n ");//TODO
 		free(session_id);
 	}
 }
@@ -281,6 +303,13 @@ void DataHandle::UploadHandle(void *arg,void *arg2)
 {
 	bufferevent * buffer=static_cast<bufferevent *>(arg);
 	evbuffer * in=bufferevent_get_input(buffer);
+//TODO..............................
+//		int testfd=open("./Uploadresponse",O_WRONLY|O_APPEND|O_CREAT,S_IWUSR|S_IRUSR);
+//		int nwrite=evbuffer_write(in,testfd);
+//		close(testfd);
+//		return;
+//TODO..............................
+
 	ConnItem * pitem=static_cast<ConnItem *>(arg2);
 	char * session_id=NULL;
 	char * file_name=NULL;
@@ -292,9 +321,10 @@ void DataHandle::UploadHandle(void *arg,void *arg2)
 		file_name=evbuffer_readln(in,NULL,EVBUFFER_EOL_CRLF_STRICT);
 		if(!file_name)
 			break;
-		new_file=evbuffer_readln(in,NULL,EVBUFFER_EOL_CRLF_STRICT);
-		if(!new_file)
-			break;
+	//	new_file=evbuffer_readln(in,NULL,EVBUFFER_EOL_CRLF_STRICT);
+	//	new_file=evbuffer_readln(in,NULL,EVBUFFER_EOL_ANY);
+	//	if(!new_file)
+	//		break;
 
 		evbuffer * out=bufferevent_get_output(buffer);
 		evbuffer_add_printf(pitem->format_buffer,"[Response]\r\n");
@@ -304,12 +334,8 @@ void DataHandle::UploadHandle(void *arg,void *arg2)
 
 		evbuffer_add_printf(pitem->format_buffer,"Result=AC\r\n");
 		pitem->recving_log=true;//接收日志中
-		pitem->log_name=file_name;
-		//add zmq
-		if((pitem->worker_name=GetWorkerPath(file_name)).empty()){
-			WorkerThread * pwt=static_cast<WorkerThread *>(pitem->pthis);
-			pitem->worker_name=SetWorkerPath(pwt->requester_,file_name);
-		}
+		pitem->log_name=file_name+9;
+
 		//evbuffer_add_printf(out,"Code=A Code\r\n ");
 		//获取文件大小
 //		 struct stat buf;
@@ -321,13 +347,29 @@ void DataHandle::UploadHandle(void *arg,void *arg2)
 		char path[256]={0};
 		sprintf(path,"./save/%s",file_name+9);
 		int fd=open(path,O_WRONLY|O_APPEND|O_CREAT,S_IWUSR|S_IRUSR);
+		if(fd==-1)
+		{
+			LOG(ERROR)<<"open file "<<file_name+9<<" failed";
+			break;
+		}
 		pitem->log_fd=fd;
-		 struct stat buf;
-		 if(stat(path, &buf)==-1)
+		//获取文件大小
+		struct stat buf;
+		if(stat(path, &buf)==-1)//TODO 
 			 buf.st_size=0;
-		//	evbuffer_write(input,fd);
-		//	close(fd);
+//		off_t log_size=GetLogSize(file_name+9);
+//		if(log_size==-1){//第一次获取
+//			CreateLogInfo(file_name+9);
+//			log_size=0;
+//		}
 		evbuffer_add_printf(pitem->format_buffer,"Size=%d\r\n",(int)buf.st_size);
+
+		//add zmq
+		if((pitem->worker_name=GetWorkerPath(file_name+9)).empty()){
+			WorkerThread * pwt=static_cast<WorkerThread *>(pitem->pthis);
+			pitem->worker_name=SetWorkerPath(pwt->requester_,file_name+9);
+		}
+
 		char arr_send[33];
 		generate_triple_des(pitem->triple_des,arr_send);
 		evbuffer_add_printf(pitem->format_buffer,"TriDES=%s\r\n",arr_send);
@@ -339,7 +381,7 @@ void DataHandle::UploadHandle(void *arg,void *arg2)
 
 	free(session_id);
 	free(file_name);
-	free(new_file);
+	//free(new_file);
 }
 
 void DataHandle::EofHandle(void *arg,void *arg2)
@@ -373,7 +415,7 @@ void DataHandle::EofHandle(void *arg,void *arg2)
 			LOG(ERROR)<<"evbuffer_add_buffer failed\n";
 	}while(0);
 	//zmq delete worker TODO
-	DeleteWorkerPath(file_name);
+	DeleteLogInfo(file_name);//日志接收完成,删除对应信息
 	free(session_id);
 	free(file_name);
 }
@@ -387,11 +429,15 @@ void DataHandle::PureDataHandle(void * arg)
 	if(pitem->log_fd>0){
 		//unsigned char encrypted_data[65535]={0};
 		unsigned char decrypted_data[65535*10]={0};
+		uLongf decryptedLenth=65535*10;
 //		length=evbuffer_remove(in,encrypted_data,65535);
 //		pitem->data_remain_length-=length;
 		int length=pitem->total_packet_length;
-		if(DecryptDecompressData(pitem->data_packet_buffer,length,decrypted_data,pitem->triple_des)){
+		if(DecryptDecompressData(pitem->data_packet_buffer,length,decrypted_data,decryptedLenth,pitem->triple_des)){
+			//SetLogSize(pitem->log_name,length);
 			write(pitem->log_fd,decrypted_data,length);
+			//pitem->log_size_recved+=length;
+			//SetLogSize(pitem->log_name,length);//记录已经获取的文件大小
 			if(!pitem->worker_name.empty()){
 				WorkerThread * pwt=static_cast<WorkerThread *>(pitem->pthis);
 				// pitem->worker_name=SetWorkerPath(pwt->requester_,file_name);
@@ -423,6 +469,9 @@ void DataHandle::PureDataHandle(void * arg)
 				LOG(ERROR)<<"has no worker path,can't send data to remote";
 			}
 		}
+		else{
+			LOG(ERROR)<<"DecryptDecompressData error";
+		}
 
 	//	delete[] pitem->data_packet_buffer;//回收内存，此处可以使用内存池进行优化
 		if(pitem->data_packet_buffer){
@@ -442,20 +491,79 @@ std::string DataHandle::GetWorkerPath(const std::string& log_name){
 	std::string ret;
 	try{
 		std::lock_guard<std::mutex>  lock(map_mutex_);
-		auto pos=logname_worker_map_.find(log_name);
-		if(pos!=logname_worker_map_.end())
-			ret=pos->second;
+		auto pos=log_info_map_.find(log_name);
+		if(pos!=log_info_map_.end())
+			ret=pos->second.worker_path;
+		else{
+			LogInfo log_info;		
+			CreateLogInfo(log_name,log_info);
+		}
 	}catch(...){
 	}
 	return ret;
 }
- bool DataHandle::DeleteWorkerPath(const std::string& log_name){
+
+
+std::string DataHandle::SetWorkerPath(zmq::socket_t& sock,const std::string& log_name){
+	std::string worker;
+	try{
+		if(s_send(sock,CLIENT_REQUEST)){
+			worker=s_recv(sock);
+			if(worker==HAS_NO_WORKER){
+				LOG(ERROR)<<"the broker HAS_NO_WORKER";
+				worker="";
+			}
+			else if(worker.empty())
+				LOG(ERROR)<<"the broker is not avaliable";
+			else {
+				std::lock_guard<std::mutex>  lock(map_mutex_);
+				auto pos=log_info_map_.find(log_name);
+				if(pos!=log_info_map_.end())
+					pos->second.worker_path=worker;
+				else{
+					LogInfo log_info;
+					log_info.worker_path=worker;				
+					CreateLogInfo(log_name,log_info);
+				}
+			}
+		}else{
+			LOG(INFO)<<"send CLIENT_REQUEST failed";
+		}
+	}
+	catch(...){
+		worker="";
+	}
+
+	return worker;
+}
+
+bool DataHandle::CreateLogInfo(const std::string& log_name,LogInfo& log_info){//不可单独使用
+	bool ret=false;
+	try{
+		//std::lock_guard<std::mutex>  lock(map_mutex_);
+		// auto pos=logname_worker_map_.find(log_name);
+		// if(pos!=logname_worker_map_.end()){
+		// 	logname_worker_map_.erase(pos);
+		// 	ret=true;
+		// }
+		//LogInfo log_info;
+		//log_info.worker_path="";
+		//log_info.log_size_recved=0;
+		log_info_map_.insert(std::make_pair(log_name,log_info));
+		ret=true;
+
+	}catch(...){
+	}
+	return ret;
+}
+bool DataHandle::DeleteLogInfo(const std::string& log_name)
+{
 	bool ret=false;
 	try{
 		std::lock_guard<std::mutex>  lock(map_mutex_);
-		auto pos=logname_worker_map_.find(log_name);
-		if(pos!=logname_worker_map_.end()){
-			logname_worker_map_.erase(pos);
+		auto pos=log_info_map_.find(log_name);
+		if(pos!=log_info_map_.end()){
+			log_info_map_.erase(pos);
 			ret=true;
 		}
 
@@ -463,38 +571,31 @@ std::string DataHandle::GetWorkerPath(const std::string& log_name){
 	}
 	return ret;
 }
- bool DataHandle::AddWorkerPath(const std::string& log_name,const std::string& worker_path){
-	bool ret=false;
-	try{
+//暂时不用
+/*off_t DataHandle::GetLogSize(const std::string& log_name)
+{
+	off_t ret=-1;
+	try{	
 		std::lock_guard<std::mutex>  lock(map_mutex_);
-		// auto pos=logname_worker_map_.find(log_name);
-		// if(pos!=logname_worker_map_.end()){
-		// 	logname_worker_map_.erase(pos);
-		// 	ret=true;
-		// }
-		logname_worker_map_.insert(std::make_pair(log_name,worker_path));
-		ret=true;
-
+		auto pos=log_info_map_.find(log_name);
+		if(pos!=log_info_map_.end())
+			ret=pos->second.log_size_recved;
 	}catch(...){
 	}
 	return ret;
 }
+//暂时不用
+void DataHandle::SetLogSize(const std::string& log_name,off_t log_size)
+{
+	try{
+		std::lock_guard<std::mutex>  lock(map_mutex_);
+		auto pos=log_info_map_.find(log_name);
+		if(pos!=log_info_map_.end())
+			pos->second.log_size_recved+=log_size;//累加
+		}
+		else{
+		}
+	catch(...){
 
-std::string DataHandle::SetWorkerPath(zmq::socket_t& sock,const std::string& log_name){
-	std::string worker;
-	if(s_send(sock,CLIENT_REQUEST)){
-		worker=s_recv(sock);
-		if(worker==HAS_NO_WORKER){
-			LOG(ERROR)<<"the broker HAS_NO_WORKER";
-			worker="";
-		}
-		else if(worker.empty())
-			LOG(ERROR)<<"the broker is not avaliable";
-		else {
-			AddWorkerPath(log_name,worker);
-		}
-	}else{
-		LOG(INFO)<<"send CLIENT_REQUEST failed";
 	}
-	return worker;
-}
+}*/

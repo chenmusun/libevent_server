@@ -57,6 +57,7 @@ void LibeventServer::AcceptConn(evconnlistener * listener, int sock, sockaddr * 
 		int cur_thread_index = (pls->last_thread_index_ + 1) %pls->num_of_workerthreads_; // 轮循选择工作线程
 		pls->last_thread_index_ = cur_thread_index;
 		ConnItem item;
+		item.data_remain_length=0;
 //		memset(&item,0,sizeof(ConnItem));
         item.session_id=current_max_session_id_++;//会话ID
 		item.conn_fd=sock;

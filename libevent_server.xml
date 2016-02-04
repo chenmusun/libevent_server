@@ -1,5 +1,5 @@
 <server>
-  <port>1234</port>
-  <threadnum>4</threadnum>
+  <port>5678</port>
+  <threadnum>12</threadnum>
   <addr>tcp://localhost:5672</addr>
 </server>

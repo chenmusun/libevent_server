@@ -33,11 +33,24 @@ struct ConnItem{
 	void * pthis;//指向线程对象的指针
 	int data_remain_length;//剩余未处理完数据
 	int total_packet_length;//总数据包长度
+	off_t file_size_recved;//已经接收的文件长度
 	char triple_des[49];
 	unsigned char * data_packet_buffer;//数据包缓冲
 	bool recving_log;//是否正在接收日志
 	std::string worker_name;//worker路径名
 	std::string log_name;//日志名
+	ConnItem(){
+		session_id=0;
+		conn_fd=-1;
+		log_fd=-1;
+		format_buffer=NULL;
+		pthis=NULL;
+		data_remain_length=0;
+		total_packet_length=0;
+		data_packet_buffer=NULL;
+		recving_log=false;//是否正在接收日志
+		file_size_recved=0;
+	}
 	void Clear()
 	{
 		if(log_fd>0){//关闭日志描述符
