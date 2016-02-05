@@ -19,15 +19,17 @@ int main(int argc, char* argv[])
 
     int port=tree.get("server.port",5678);
     int num_of_threads=tree.get("server.threadnum",2);
+    int timespan=tree.get("server.timespan",2);
+    int overtime=tree.get("server.overtime",20);
     std::string addr=tree.get<std::string>("server.addr");
     // if (argc > 2) {
     //          port = atoi(argv[1]);
     //          num_of_threads=atoi(argv[2]);
     //  }
     LOG(INFO)<<"LibeventServer will start with "<<num_of_threads<<" threads and listen on port "<<port<<std::endl;
-    LibeventServer ls(port,num_of_threads);//创建服务
+    LibeventServer ls(port,num_of_threads,overtime);//创建服务
     zmq::context_t context;
-    if(!ls.Run(context,addr))
+    if(!ls.Run(context,addr,timespan))
     {
         LOG(ERROR)<<"LibeventServer fails to start service"<<std::endl;
         return -1;

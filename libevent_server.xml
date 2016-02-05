@@ -1,5 +1,7 @@
 <server>
   <port>5678</port>
   <threadnum>12</threadnum>
+  <timespan>2</timespan>
+  <overtime>20</overtime>
   <addr>tcp://localhost:5672</addr>
 </server>

@@ -365,6 +365,7 @@ void DataHandle::UploadHandle(void *arg,void *arg2)
 		evbuffer_add_printf(pitem->format_buffer,"Size=%d\r\n",(int)buf.st_size);
 
 		//add zmq
+		SetLogConnItem(pitem->log_name,pitem);//将连接信息加入LogInfo中
 		if((pitem->worker_name=GetWorkerPath(file_name+9)).empty()){
 			WorkerThread * pwt=static_cast<WorkerThread *>(pitem->pthis);
 			pitem->worker_name=SetWorkerPath(pwt->requester_,file_name+9);
@@ -414,7 +415,17 @@ void DataHandle::EofHandle(void *arg,void *arg2)
 		if(evbuffer_add_buffer(out,pitem->format_buffer))
 			LOG(ERROR)<<"evbuffer_add_buffer failed\n";
 	}while(0);
-	//zmq delete worker TODO
+	//发送EOF标识
+	if(!pitem->worker_name.empty()){
+		WorkerThread * pwt=static_cast<WorkerThread *>(pitem->pthis);
+		// pitem->worker_name=SetWorkerPath(pwt->requester_,file_name);
+		if(s_sendmore(pwt->requester_,pitem->worker_name))
+		{
+			s_sendmore(pwt->requester_,pitem->log_name);
+			s_send(pwt->requester_,"EOF");
+		}
+	}
+
 	DeleteLogInfo(file_name);//日志接收完成,删除对应信息
 	free(session_id);
 	free(file_name);
@@ -436,6 +447,7 @@ void DataHandle::PureDataHandle(void * arg)
 		if(DecryptDecompressData(pitem->data_packet_buffer,length,decrypted_data,decryptedLenth,pitem->triple_des)){
 			//SetLogSize(pitem->log_name,length);
 			write(pitem->log_fd,decrypted_data,length);
+			SetLogAccessTime(pitem->log_name);
 			//pitem->log_size_recved+=length;
 			//SetLogSize(pitem->log_name,length);//记录已经获取的文件大小
 			if(!pitem->worker_name.empty()){
@@ -537,7 +549,7 @@ std::string DataHandle::SetWorkerPath(zmq::socket_t& sock,const std::string& log
 	return worker;
 }
 
-bool DataHandle::CreateLogInfo(const std::string& log_name,LogInfo& log_info){//不可单独使用
+bool DataHandle::CreateLogInfo(const std::string& log_name,LogInfo& log_info){//内部使用
 	bool ret=false;
 	try{
 		//std::lock_guard<std::mutex>  lock(map_mutex_);
@@ -570,6 +582,68 @@ bool DataHandle::DeleteLogInfo(const std::string& log_name)
 	}catch(...){
 	}
 	return ret;
+}
+
+void DataHandle::OverTimeHandle(evutil_socket_t fd, short what, void * arg)
+{
+	try{
+		LOG(ERROR)<<"overtime handle";
+		int *pover_time=(int *)arg;
+		time_t now=time(0);
+		std::lock_guard<std::mutex> lock(map_mutex_);
+		for(auto pos=log_info_map_.begin();pos!=log_info_map_.end();)
+			if((now-pos->second.last_access)>=*pover_time){
+				LOG(ERROR)<<pos->first<<" removed caused by overtime";
+				//发送OVERTIME标识
+				if(!pos->second.worker_path.empty()){
+					ConnItem * pitem=pos->second.pItem;
+					WorkerThread * pwt=static_cast<WorkerThread *>(pitem->pthis);
+					// pitem->worker_name=SetWorkerPath(pwt->requester_,file_name);
+					if(s_sendmore(pwt->requester_,pitem->worker_name))
+					{
+						s_sendmore(pwt->requester_,pitem->log_name);
+						s_send(pwt->requester_,"OVERTIME");
+					}
+				}
+				log_info_map_.erase(pos++);
+			}
+			else
+				++pos;
+	}catch(...){
+	}
+	// LOG(ERROR)<<"overtime handle";
+}
+
+void DataHandle::SetLogAccessTime(const std::string& log_name){
+	try{
+		time_t now=time(0);
+		std::lock_guard<std::mutex>  lock(map_mutex_);
+		auto pos=log_info_map_.find(log_name);
+		if(pos!=log_info_map_.end())
+			pos->second.last_access=now;
+		else{
+			LogInfo log_info;
+			log_info.last_access=now;
+			CreateLogInfo(log_name,log_info);
+		}
+	}catch(...){
+	}
+}
+
+void DataHandle::SetLogConnItem(const std::string& log_name,ConnItem* pConnItem)
+{
+	try{
+		std::lock_guard<std::mutex>  lock(map_mutex_);
+		auto pos=log_info_map_.find(log_name);
+		if(pos!=log_info_map_.end())
+			pos->second.pItem=pConnItem;
+		else{
+			LogInfo log_info;
+			log_info.pItem=pConnItem;
+			CreateLogInfo(log_name,log_info);
+		}
+	}catch(...){
+	}
 }
 //暂时不用
 /*off_t DataHandle::GetLogSize(const std::string& log_name)

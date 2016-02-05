@@ -22,8 +22,13 @@
 #define DECLARE_HANDLE_PROC(cmd)   static void cmd##Handle(void *,void *);
 
 struct LogInfo{
+	LogInfo(){
+		pItem=NULL;
+	}
 	std::string worker_path;
-	off_t log_size_recved;
+	time_t last_access;//最后一次访问时间
+	ConnItem * pItem;
+	//off_t log_size_recved;
 };
 
 
@@ -51,6 +56,7 @@ public:
 	DECLARE_HANDLE_PROC(Eof)
 	DECLARE_HANDLE_PROC(PureData)//纯数据包操作
 	static void PureDataHandle(void * arg);
+	static void OverTimeHandle(evutil_socket_t fd, short what, void * arg);//超时操作
 private:
 	static void WriteDataSize(evbuffer *);
 	static  std::set<CmdHandle> cmd_handle_set_;
@@ -61,6 +67,8 @@ private:
 //	static void SetLogSize(const std::string& log_name,off_t log_size);
 	static std::string SetWorkerPath(zmq::socket_t& sock,const std::string& log_name);//
 	static std::string GetWorkerPath(const std::string& log_name);
+	static void SetLogConnItem(const std::string& log_name, ConnItem* pConnItem);
+	static void SetLogAccessTime(const std::string& log_name);
 //	static bool DeleteWorkerPath(const std::string& log_name);
 //	static bool AddWorkerPath(const std::string& log_name,const std::string& worker_path);
 	//TODO 写文件要优化
