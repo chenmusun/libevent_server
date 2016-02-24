@@ -2,6 +2,7 @@
   <port>5678</port>
   <threadnum>12</threadnum>
   <timespan>2</timespan>
-  <overtime>20</overtime>
+  <overtime>200</overtime>
   <addr>tcp://localhost:5672</addr>
+  <path>./save/haha</path>
 </server>

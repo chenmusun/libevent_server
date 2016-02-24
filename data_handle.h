@@ -20,10 +20,11 @@
 //#include"easylogging++.h"
 #include"worker_thread.h"
 #define DECLARE_HANDLE_PROC(cmd)   static void cmd##Handle(void *,void *);
-
+extern std::string FILE_PATH;
 struct LogInfo{
 	LogInfo(){
 		pItem=NULL;
+		last_access=time(0);
 	}
 	std::string worker_path;
 	time_t last_access;//最后一次访问时间
@@ -61,14 +62,16 @@ private:
 	static void WriteDataSize(evbuffer *);
 	static  std::set<CmdHandle> cmd_handle_set_;
 	//LOGINFO
-	static bool CreateLogInfo(const std::string& log_name,LogInfo& log_info);
+//	static bool CreateLogInfo(const std::string& log_name,LogInfo& log_info);
 	static bool DeleteLogInfo(const std::string& log_name);
+	static LogInfo GetLogInfo(const std::string& log_name);
 //	static off_t GetLogSize(const std::string& log_name);
 //	static void SetLogSize(const std::string& log_name,off_t log_size);
-	static std::string SetWorkerPath(zmq::socket_t& sock,const std::string& log_name);//
-	static std::string GetWorkerPath(const std::string& log_name);
-	static void SetLogConnItem(const std::string& log_name, ConnItem* pConnItem);
-	static void SetLogAccessTime(const std::string& log_name);
+	static std::string SetWorkerPath(zmq::socket_t& sock,LogInfo& log_info);//
+	static std::string GetWorkerPath(const LogInfo& log_info);
+	static void SetLogConnItem(LogInfo& log_info, ConnItem* pConnItem);
+	static void SetLogAccessTime(LogInfo& log_info);
+	static void SetLogInfo(const std::string& log_name,const LogInfo& log_info);
 //	static bool DeleteWorkerPath(const std::string& log_name);
 //	static bool AddWorkerPath(const std::string& log_name,const std::string& worker_path);
 	//TODO 写文件要优化

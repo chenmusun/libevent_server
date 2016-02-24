@@ -109,6 +109,7 @@ bool DecryptDecompressData(const uint8_t * src,int& length,uint8_t * dest,uLongf
 }
 
 
+
 int DataHandle::session_id_=1;
 std::mutex DataHandle::map_mutex_;
 std::map<std::string,LogInfo>	DataHandle::log_info_map_;
@@ -345,8 +346,14 @@ void DataHandle::UploadHandle(void *arg,void *arg2)
 //			 buf.st_size=0;
 		//创建或打开文件
 		char path[256]={0};
-		sprintf(path,"./save/%s",file_name+9);
-		int fd=open(path,O_WRONLY|O_APPEND|O_CREAT,S_IWUSR|S_IRUSR);
+		char path_file[256]={0};
+		sprintf(path,"%s",FILE_PATH.c_str());
+		sprintf(path_file,"%s/%s",path,file_name+9);
+		if(access(path,F_OK)==-1){
+			if(mkdir(path,S_IRWXU|S_IRWXG|S_IRWXO)==-1)
+				LOG(ERROR)<<"mkdir "<<path<<" failed";
+		}
+		int fd=open(path_file,O_WRONLY|O_APPEND|O_CREAT,S_IWUSR|S_IRUSR);
 		if(fd==-1)
 		{
 			LOG(ERROR)<<"open file "<<file_name+9<<" failed";
@@ -365,12 +372,13 @@ void DataHandle::UploadHandle(void *arg,void *arg2)
 		evbuffer_add_printf(pitem->format_buffer,"Size=%d\r\n",(int)buf.st_size);
 
 		//add zmq
-		SetLogConnItem(pitem->log_name,pitem);//将连接信息加入LogInfo中
-		if((pitem->worker_name=GetWorkerPath(file_name+9)).empty()){
+		LogInfo loginfo=GetLogInfo(pitem->log_name);
+		SetLogConnItem(loginfo,pitem);//将连接信息加入LogInfo中
+		if((pitem->worker_name=loginfo.worker_path).empty()){//设置路径信息
 			WorkerThread * pwt=static_cast<WorkerThread *>(pitem->pthis);
-			pitem->worker_name=SetWorkerPath(pwt->requester_,file_name+9);
+			pitem->worker_name=SetWorkerPath(pwt->requester_,loginfo);
 		}
-
+		SetLogInfo(pitem->log_name,loginfo);//回写到map中
 		char arr_send[33];
 		generate_triple_des(pitem->triple_des,arr_send);
 		evbuffer_add_printf(pitem->format_buffer,"TriDES=%s\r\n",arr_send);
@@ -409,24 +417,30 @@ void DataHandle::EofHandle(void *arg,void *arg2)
 		evbuffer_add_printf(pitem->format_buffer,"[Response]\r\n");
 		evbuffer_add_printf(pitem->format_buffer,"Command=Eof\r\n");
 		evbuffer_add_printf(pitem->format_buffer,"%s\r\n",session_id);
-		evbuffer_add_printf(pitem->format_buffer,"%s\r\n",file_name);
+		evbuffer_add_printf(pitem->format_buffer,"%s\r\n",file_name+6);
 		evbuffer_add_printf(pitem->format_buffer,"Result=AC\r\n");
 		WriteDataSize(pitem->format_buffer);
 		if(evbuffer_add_buffer(out,pitem->format_buffer))
 			LOG(ERROR)<<"evbuffer_add_buffer failed\n";
 	}while(0);
-	//发送EOF标识
-	if(!pitem->worker_name.empty()){
-		WorkerThread * pwt=static_cast<WorkerThread *>(pitem->pthis);
-		// pitem->worker_name=SetWorkerPath(pwt->requester_,file_name);
-		if(s_sendmore(pwt->requester_,pitem->worker_name))
-		{
-			s_sendmore(pwt->requester_,pitem->log_name);
-			s_send(pwt->requester_,"EOF");
+
+
+	if(DeleteLogInfo(file_name+6))//日志接收完成,删除对应信息
+	{
+			//发送EOF标识
+
+	//	LOG(ERROR)<<"Delete Log Info successs";
+		LOG(ERROR)<<file_name+6<<" removed caused by eof";
+		if(!pitem->worker_name.empty()){
+			WorkerThread * pwt=static_cast<WorkerThread *>(pitem->pthis);
+			// pitem->worker_name=SetWorkerPath(pwt->requester_,file_name);
+			if(s_sendmore(pwt->requester_,pitem->worker_name))
+			{
+				s_sendmore(pwt->requester_,pitem->log_name);
+				s_send(pwt->requester_,"EOF");
+			}
 		}
 	}
-
-	DeleteLogInfo(file_name);//日志接收完成,删除对应信息
 	free(session_id);
 	free(file_name);
 }
@@ -447,11 +461,25 @@ void DataHandle::PureDataHandle(void * arg)
 		if(DecryptDecompressData(pitem->data_packet_buffer,length,decrypted_data,decryptedLenth,pitem->triple_des)){
 			//SetLogSize(pitem->log_name,length);
 			write(pitem->log_fd,decrypted_data,length);
-			SetLogAccessTime(pitem->log_name);
+			LogInfo loginfo=GetLogInfo(pitem->log_name);//设置访问时间信息
+			SetLogAccessTime(loginfo);
 			//pitem->log_size_recved+=length;
 			//SetLogSize(pitem->log_name,length);//记录已经获取的文件大小
-			if(!pitem->worker_name.empty()){
-				WorkerThread * pwt=static_cast<WorkerThread *>(pitem->pthis);
+			WorkerThread * pwt=static_cast<WorkerThread *>(pitem->pthis);
+			//if(pitem->worker_name.empty()){//获取路径
+				// pitem->worker_name=SetWorkerPath(pwt->requester_,loginfo);
+			 //   std::string worker=s_recv(pwt->requester_);
+			//	if(worker==HAS_NO_WORKER){
+			//		LOG(ERROR)<<"the broker HAS_NO_WORKER";
+			//	}
+			//	else if(worker.empty())
+			//		LOG(ERROR)<<"the broker is not avaliable";
+			//	else {
+			//		pitem->worker_name=worker;
+			//	}
+			//}
+			SetLogInfo(pitem->log_name,loginfo);//回写到map中
+			if(!pitem->worker_name.empty()){//此处已经假定broker已经存在
 				// pitem->worker_name=SetWorkerPath(pwt->requester_,file_name);
 				if(s_sendmore(pwt->requester_,pitem->worker_name))
 				{
@@ -478,7 +506,8 @@ void DataHandle::PureDataHandle(void * arg)
 				}
 			}
 			else {
-				LOG(ERROR)<<"has no worker path,can't send data to remote";
+					LOG(ERROR)<<"has no worker path,can't send data to remote";
+				// SetWorkerPath(pwt->requester_,loginfo);
 			}
 		}
 		else{
@@ -499,24 +528,12 @@ void DataHandle::PureDataHandle(void * arg)
 //	if(pitem->data_remain_length)
 }
 
-std::string DataHandle::GetWorkerPath(const std::string& log_name){
-	std::string ret;
-	try{
-		std::lock_guard<std::mutex>  lock(map_mutex_);
-		auto pos=log_info_map_.find(log_name);
-		if(pos!=log_info_map_.end())
-			ret=pos->second.worker_path;
-		else{
-			LogInfo log_info;		
-			CreateLogInfo(log_name,log_info);
-		}
-	}catch(...){
-	}
-	return ret;
-}
+// std::string DataHandle::GetWorkerPath(const LogInfo& log_info){
+// 	return log_info.worker_path;
+// }
 
 
-std::string DataHandle::SetWorkerPath(zmq::socket_t& sock,const std::string& log_name){
+std::string DataHandle::SetWorkerPath(zmq::socket_t& sock,LogInfo& log_info){
 	std::string worker;
 	try{
 		if(s_send(sock,CLIENT_REQUEST)){
@@ -528,15 +545,7 @@ std::string DataHandle::SetWorkerPath(zmq::socket_t& sock,const std::string& log
 			else if(worker.empty())
 				LOG(ERROR)<<"the broker is not avaliable";
 			else {
-				std::lock_guard<std::mutex>  lock(map_mutex_);
-				auto pos=log_info_map_.find(log_name);
-				if(pos!=log_info_map_.end())
-					pos->second.worker_path=worker;
-				else{
-					LogInfo log_info;
-					log_info.worker_path=worker;				
-					CreateLogInfo(log_name,log_info);
-				}
+				log_info.worker_path=worker;
 			}
 		}else{
 			LOG(INFO)<<"send CLIENT_REQUEST failed";
@@ -549,24 +558,24 @@ std::string DataHandle::SetWorkerPath(zmq::socket_t& sock,const std::string& log
 	return worker;
 }
 
-bool DataHandle::CreateLogInfo(const std::string& log_name,LogInfo& log_info){//内部使用
-	bool ret=false;
+LogInfo DataHandle::GetLogInfo(const std::string& log_name// ,LogInfo& log_info
+	)
+{
+	LogInfo log_info;
 	try{
-		//std::lock_guard<std::mutex>  lock(map_mutex_);
-		// auto pos=logname_worker_map_.find(log_name);
-		// if(pos!=logname_worker_map_.end()){
-		// 	logname_worker_map_.erase(pos);
-		// 	ret=true;
-		// }
-		//LogInfo log_info;
-		//log_info.worker_path="";
-		//log_info.log_size_recved=0;
-		log_info_map_.insert(std::make_pair(log_name,log_info));
-		ret=true;
+		std::lock_guard<std::mutex>  lock(map_mutex_);
+		auto pos=log_info_map_.find(log_name);
+		if(pos!=log_info_map_.end()){
+			log_info=pos->second;
+		}
+		else{
+			log_info_map_.insert(std::make_pair(log_name,log_info));
+		}
 
 	}catch(...){
 	}
-	return ret;
+	return log_info;
+
 }
 bool DataHandle::DeleteLogInfo(const std::string& log_name)
 {
@@ -577,6 +586,7 @@ bool DataHandle::DeleteLogInfo(const std::string& log_name)
 		if(pos!=log_info_map_.end()){
 			log_info_map_.erase(pos);
 			ret=true;
+			//LOG(ERROR)<<log_name<<" removed caused by eof";
 		}
 
 	}catch(...){
@@ -587,7 +597,7 @@ bool DataHandle::DeleteLogInfo(const std::string& log_name)
 void DataHandle::OverTimeHandle(evutil_socket_t fd, short what, void * arg)
 {
 	try{
-		LOG(ERROR)<<"overtime handle";
+//		LOG(ERROR)<<"overtime handle";
 		int *pover_time=(int *)arg;
 		time_t now=time(0);
 		std::lock_guard<std::mutex> lock(map_mutex_);
@@ -614,36 +624,32 @@ void DataHandle::OverTimeHandle(evutil_socket_t fd, short what, void * arg)
 	// LOG(ERROR)<<"overtime handle";
 }
 
-void DataHandle::SetLogAccessTime(const std::string& log_name){
-	try{
+void DataHandle::SetLogAccessTime(LogInfo& log_info){
 		time_t now=time(0);
-		std::lock_guard<std::mutex>  lock(map_mutex_);
-		auto pos=log_info_map_.find(log_name);
-		if(pos!=log_info_map_.end())
-			pos->second.last_access=now;
-		else{
-			LogInfo log_info;
-			log_info.last_access=now;
-			CreateLogInfo(log_name,log_info);
-		}
-	}catch(...){
-	}
+		log_info.last_access=now;
 }
 
-void DataHandle::SetLogConnItem(const std::string& log_name,ConnItem* pConnItem)
+void DataHandle::SetLogConnItem(LogInfo& log_info,ConnItem* pConnItem)
 {
+		log_info.pItem=pConnItem;
+}
+
+void DataHandle::SetLogInfo(const std::string& log_name,const LogInfo& log_info)
+{
+	// LogInfo log_info;
 	try{
 		std::lock_guard<std::mutex>  lock(map_mutex_);
 		auto pos=log_info_map_.find(log_name);
-		if(pos!=log_info_map_.end())
-			pos->second.pItem=pConnItem;
-		else{
-			LogInfo log_info;
-			log_info.pItem=pConnItem;
-			CreateLogInfo(log_name,log_info);
+		if(pos!=log_info_map_.end()){
+			pos->second=log_info;
 		}
+		else{
+			log_info_map_.insert(std::make_pair(log_name,log_info));
+		}
+
 	}catch(...){
 	}
+	// return log_info;
 }
 //暂时不用
 /*off_t DataHandle::GetLogSize(const std::string& log_name)

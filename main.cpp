@@ -10,6 +10,9 @@
 #include<stdio.h>
 namespace pt = boost::property_tree;//
 INITIALIZE_EASYLOGGINGPP//初始化日志记录库
+
+std::string FILE_PATH;
+
 int main(int argc, char* argv[])
 {
 	el::Configurations conf("./log.conf");
@@ -22,6 +25,7 @@ int main(int argc, char* argv[])
     int timespan=tree.get("server.timespan",2);
     int overtime=tree.get("server.overtime",20);
     std::string addr=tree.get<std::string>("server.addr");
+    FILE_PATH=tree.get<std::string>("server.path");
     // if (argc > 2) {
     //          port = atoi(argv[1]);
     //          num_of_threads=atoi(argv[2]);
